@@ -26,7 +26,6 @@ new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"
 if(length(new.packages)) install.packages(new.packages)
 lapply(list.of.packages, require, character.only = TRUE)
 directory <-'' #Replace here your directory
-directory <- '/Users/Marines/Documents/6.-R/Cursera/Final_Project/Coursera-SwiftKey/final/en_US/'
 ```
 
 Several R scripts were built to analyze the data and stored in the TextMining.R file. If you have a technical background and you are interested on these scripts, please visit the following [Github](https://github.com/MariPlaza/Capstone_Milestone_Report)
