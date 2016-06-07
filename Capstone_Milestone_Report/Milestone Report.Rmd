@@ -1,0 +1,194 @@
+---
+title: "Data Science Capstone Milestone Report"
+author: "Maria Ines Plaza Schwarck"
+date: "June, 2016"
+output: html_document
+---
+
+## Executive Summary
+Nowdays there are several applications related with text prediction. Text strings are used as inputs by humans for the technology everyday, and the hability to predict the next word could produce important savings in terms of time and accuracy for technology platforms that receive text inputs. 
+
+As final project for the Data Science Specialization a text prediction application would be developed in R using text mining capabilities. This milestone report consists of a preliminar analysis of the dataset that is going to be used for the prediction in the final application. 
+
+The dataset for the prediction would be organized in [n-grams models](https://en.wikipedia.org/wiki/N-gram). That means that the texts provided would be separate in collections of n sequence words that would provide the basis for the prediction. A unigram or 1-gram would be just words, while a trigram or 3-gram would sequence of 3 words that were together in the texts provided. 
+
+After performing the appropiate analysis, it is noted that in the unigram model the frequent words are the common words of the language such as articles, pronouns and auxiliary verbs, nonetheless, since the purpose of the application is to predict next words, they should remain in the training data-set. It is also noted that for the unigram and bigram models the main source comes from blogs, but twitter gains more influence in the conformation of trigrams, 4-grams, 5-grams and 6-grams models. In the analysis, several patterns are detected that could caused biases. These biases should be minimized by the inclusion of other sources and the implementation of a mechanism in the application to receive and store direct feedback from users. 
+
+Please be aware that the focus of this report is to make it easy to understand the concepts behind the data (and the application) for a person with non-data science background. If you are interested on the code behind this analysis please review the following [github](https://github.com/MariPlaza/Capstone_Milestone_Report). 
+
+## Data Description 
+The initial Data for the algorythm is provided directly by [Swift Key](https://swiftkey.com/en). The data consists of 4 folders with 3 documents each one, each folder represents a language (English, German, Finnish and Russian) and each document have several texts (in the language of the selected folder) from 3 different sources: Twitter, Blogs and News. For this application just the English language is going to be analyzed. 
+
+```{r, echo= FALSE, warning= FALSE, results='hide', message=FALSE}
+#Set-Up environment and charge usefull libraries'
+list.of.packages <- c("tm","wordcloud","ggplot2","RWeka","SnowballC","plyr","reshape2","knitr","gridExtra")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+lapply(list.of.packages, require, character.only = TRUE)
+directory <-'' #Replace here your directory
+directory <- '/Users/Marines/Documents/6.-R/Cursera/Final_Project/Coursera-SwiftKey/final/en_US/'
+```
+
+Several R scripts were built to analyze the data and stored in the TextMining.R file. If you have a technical background and you are interested on these scripts, please visit the following [Github](https://github.com/MariPlaza/Capstone_Milestone_Report)
+
+```{r}
+setwd(directory)
+source("RFunctions/TextMining.R")
+```
+
+```{r, echo=FALSE, warning=FALSE}
+set.seed(1102)
+files <- list.files(path=".",pattern=".txt", recursive=F)
+percentage <- 0.05
+sample_file <- NULL
+File_Statistics <- NULL
+for (i in 1:length(files)){
+    source_file <- suppressWarnings(readLines(files[i], encoding = "UTF-8", skipNul = TRUE))
+    File_Statistics <- rbind(File_Statistics, Files_Stats(files[i],source_file))
+    source_file <- iconv(source_file, "UTF-8", "ASCII", sub="")
+    file_name <- paste(directory, 'sample/',files[i],'_sample.csv', sep="")
+    sample_file <- sample(source_file, size=length(source_file)*percentage, replace=FALSE)
+    suppressWarnings(write.csv(sample_file, file = file_name, row.names = FALSE, col.names = FALSE))
+}
+rm(source_file, sample_file)
+```
+
+The statistics for the original files are the following:
+```{r}
+kable(File_Statistics, format = "markdown")
+```
+
+Since the original files are huge, just a **sample of 5%** of the texts are going to be analyzed to build the training model. 
+
+## Exploratory Analysis 
+
+### Data Pre-Processing and Transformation
+
+After selecting the sample, these texts should be transform to create a robust corpus that serve for the purposes of training the model for performing the prediction. Several n-grams models are going to be build in order to create the prediction algorithm, but prior to the creation of the models, it is important to clean the data using the criteria that make sense given the application purpose: prediction. 
+
+```{r}
+documents <- Corpus(DirSource(paste(directory,"Sample/",sep="")), readerControl = list(reader=readPlain, language="en_US"))
+documents <- Cleaned_Corpus(documents, RemoveCommonWords = FALSE,RemoveRadicals = FALSE)
+```
+
+The following table resumes the possible transformation available in the function Cleaned Corpus and which ones were applied and which ones not and the reason behind these decisions:
+
+Transformation Name | Explanation of the Transformation | Applied | Reason 
+---|----|---|---
+RemoveUperCase  | Remove upercases from all words and make them lowercase | Yes | Make it easy to compare the same sequence of words. 
+RemovePunctuation | Remove all punctuations | Yes | Although this transformation has an important implication, it was applied because make it easy to predict sequences of words.  
+RemoveNumbers | Removes all numbers from Corpus | Yes | Keep just the words. 
+WhiteSpace | Eliminates unnecesary white spaces | Yes | To avoid confusion with unnecesary white spaces. 
+Profanity | Eliminate bad words | Yes | Avoid predicting bad words, although this could affect the accuracy of the algorythm 
+RemoveInternetInfo | Eliminates email, hashtags and webpages | Yes | Since the sources are blogs and twitter, this function eliminates unnecesary information repeated in the platform but not usefull for prediction. 
+RemoveCommonWords | Remove connectors and articles, that are common words in the language | No | Since the purpose is prediction, common words should not be removed. 
+RemoveRadicals | Keep just the root of the words | No | Since the purpose is predict the right word, the application requires all possible words not just its root. 
+
+
+After proccesing the data, selecting a 5% sample and applying the explained transformation, the following statistics are obtained:
+
+```{r, echo=FALSE}
+files_names <- files[1:3]
+files_names <- gsub(".txt|en_US.", "", files_names, perl = TRUE)
+
+Summary_Sample <- data.frame(N_Gram= numeric(0), Combinations= integer(0), Unique_combinations = integer(0), Porc_Unique = integer(0))
+Sample_Statistics <- data.frame(N_Gram= numeric(0), Combinations= integer(0), Unique_combinations = integer(0),  Relationship = integer(0), Text_Source = character(0))
+
+for (i in 1:6){
+    Matrix_gram <- Matrix_N_Gram(documents, i, files_names,5000000)
+    Summary_Sample <- rbind(Summary_Sample, cbind(N_Gram = i, Combinations = sum(Matrix_gram[,1:3]), Unique_combinations = nrow(Matrix_gram), Porc_Unique = 100 * (nrow(Matrix_gram)/sum(Matrix_gram[,1:3]))))
+    for (j in 1:3)
+    {
+        Combinations <- sum(Matrix_gram[,j])
+        Unique_combinations <- count(Matrix_gram[,j]>0)[2,2]
+        if (j == 1) Text_Source <- "blogs"  
+        if (j == 2) Text_Source <- "news"  
+        if (j == 3) Text_Source <- "twitter"  
+        New_Row <- cbind(N_Gram = i, Combinations, Unique_combinations, Relationship = Combinations/Unique_combinations, Text_Source)
+        Sample_Statistics <- rbind(Sample_Statistics, New_Row)    
+    }
+}
+Sample_Statistics$Unique_combinations <- as.numeric(as.character(Sample_Statistics$Unique_combinations))
+Sample_Statistics$Combinations <- as.numeric(as.character(Sample_Statistics$Combinations))
+Sample_Statistics$Relationship <-as.numeric(as.character(Sample_Statistics$Relationship))
+Sample_Statistics <- Sample_Statistics[order(Sample_Statistics$Unique_combinations, decreasing = TRUE), ]
+```
+
+```{r}
+kable(Summary_Sample, format = "markdown")
+```
+
+The main goal to build an appropriate data training set is to get a balance between frequency (probability for the model) and variety of the n-grams. As expected while n-grams increase the "uniqueness" of the n-gram increase (In the graph this means that the point is near to the black line - identity line -).  This effect occurs mainly because when several words in a row are combined, they tend to not repeat it so frequently as if the frequency of just one word is considered. 
+
+Nonetheless, it is interesting to note that news tend to have less combinations than the other sources, mainly because they original source has less line than the others. Nonetheless news are close to uniqueness, which provides variety to the training data set to improve its accuracy. This graph suggests that for the final training data set, a major proportion for news should be considered to gain accuracy and richness for the model. This could be applied using 5% of blogs and twitter but 20% from news. 
+
+```{r}
+plotsample <- ggplot(Sample_Statistics, aes(Combinations,Unique_combinations))  + ggtitle("Statistics from sample files")
+plotsample <- plotsample + geom_point(size=4, aes(colour = N_Gram)) +  labs(x="Combinations",y="# Unique Combinations") + facet_grid(facet=Text_Source~.) +  theme(legend.position="top")
+plotsample <- plotsample  +  theme(panel.grid.major = element_line(colour = "white")) + theme_bw() 
+plotsample <- plotsample  + geom_abline(intercept = 0, slope = 1)
+plotsample
+```
+
+
+### Unigram Analysis
+As expected, when the word cloud and the unigram graph are analyzed the most common words are "not relevant" since they are common used words in the english language such as articles (eg. the), connectors (eg. and, but), auxiliary verbs (eg. are, have, will, was) and pronouns (eg. you, they). Nonetheless, this overly common words are neccesary in the unigram model because they are the basis for the prediction. 
+
+In the Unigram model, it is interesting to noted that most of the words come from blogs, follow by twitter and finally news. This is reasonable since in blogs and twitter, people tend to use more coloquial language. 
+
+```{r}
+wordcloud(documents, max.words = 200, random.order = FALSE,rot.per=0.35, use.r.layout=FALSE,colors=brewer.pal(8, "Dark2"))
+plot1<- Graph_N_Gram(Matrix_N_Gram(documents, 1, files_names,50),1, showlegend = FALSE)
+plot1
+```
+
+### Bigram Analysis
+
+The main source of bi-gram model is still blogs. It is interesting to note that the construction are common construction such a preposition and an article (eg. of the, in the), a pronoun and a verb (eg. i am, i dont) 
+
+```{r}
+plot2<- Graph_N_Gram(Matrix_N_Gram(documents, 2, files_names,50),2, showlegend = FALSE)
+plot2
+```
+
+### Trigram Analysis
+The most common pattern in the 3-gram model is "Thanks for the" and this pattern comes mainly from twitter due to the etiquete among the users of this platform. Although in the other patterns blogs are very relevant, twitter gains relevance compared with the unigram and bigrams models. The main pattern here is the combination between articles, auxiliary verbs and pronouns. 
+
+```{r}
+plot3<- Graph_N_Gram(Matrix_N_Gram(documents, 3, files_names,50),3, showlegend = FALSE)
+plot3
+```
+
+### 4-gram, 5-gram and 6-gram Analysis
+
+In 4-grams are mainly continuation of the 3-grams frequent structures, but twitter gain relevances because repeating is the nature of this application. 
+
+```{r}
+plot4<- Graph_N_Gram(Matrix_N_Gram(documents, 4, files_names,50),4, showlegend = FALSE)
+plot5<- Graph_N_Gram(Matrix_N_Gram(documents, 5, files_names,20),5, showlegend = FALSE)
+plot6<- Graph_N_Gram(Matrix_N_Gram(documents, 6, files_names,20),6, showlegend = FALSE)
+plot4
+grid.arrange(plot5, plot6, nrow=1, ncol=2)
+```
+
+## Key Findings
+- The remove punctuations function removes the normal punctuaction (which is usefull) but it also removes the symbol ', creating patterns that are not going to be write naturally by the user (eg. I dont instead of I don't). This implies that in the application of the algorythm, the same transformation should be applied prior to the evaluation in order to maintain its accuracy. 
+
+- There are several words that are common words in the language such as articles and conjunctions, nonetheless, since the purpose of the future application is predicting next word using a three word pattern, they should not be excluded from data for the learning machine algorithm.
+
+- In the unigram analysis most common words come from blogs, nonetheless in >3-n-grams texts from twitter gain relevance due to the usage protocol of this platform. 
+
+- Since the >3-grams are more influenced by twitter, thanks to twitter's etiquete-code, references to events (mothers day) and re-tweets, the algorythm could be biased. It is highly recommend to include other sources in the prediction algorythm to improve its accuracy. It would be also neccesary to record the entry of the final users to receive feedback and improve the application. 
+
+- In the 6-gram model, several strings are related with Amazon. This pattern occurs because several blogs are hosted or used Amazon services but these strings are not usefull or relevant for the prediction algorithm. So limiting the model to 5-grams models is enough for the goal of this application. 
+
+- Since the main sources are twitter and blogs, where frequent common language is used, the algorythm could fail to predict more complex structures. To improve the accuracy and range of the algorythm, it is suggested to include more texts from news, where diversity in language and structures are used, and maintain the current proportion from blogs and twitter.  It is also recommended to test several smoothing techniques to reach an acceptable trade-off between bias vs variance. 
+
+## Next Steps
+After performing this initial exploratory analysis, several steps should be followed: 
+
+1. Look for new sources to complement the existing ones and improve the accuracy of the application. 
+2. Develop and test the prediction algorithms that deal with the trade-off between Bias-versus-variance. 
+3. Design the final application front and back-end. 
+4. Implement a feedback mechanism to save and track users final input. 
+5. Implement and document the final application. 
